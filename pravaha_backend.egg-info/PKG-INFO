@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: pravaha-backend
+Version: 0.1.0
+Summary: Backend API and orchestration service for PRAVAHA
+Requires-Python: >=3.11
