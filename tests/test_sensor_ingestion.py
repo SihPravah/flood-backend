@@ -11,8 +11,8 @@ VALID_PAYLOAD = {
     "location": {
         "village": "Munnar",
         "ward": "Ward_3",
-        "latitude": 10.0889,
-        "longitude": 77.0595,
+        "lat": 10.0889,
+        "lon": 77.0595,
     },
     "sensor_metrics": {
         "rainfall_mm_per_hr": 45.5,
@@ -46,6 +46,8 @@ def test_sensor_ingestion():
 
     # Mock ML prediction should be attached
     assert "prediction" in body
+    assert body["canonical_location"]["latitude"] == 10.0889
+    assert body["canonical_location"]["longitude"] == 77.0595
 
     prediction = body["prediction"]
 
@@ -111,7 +113,7 @@ def test_invalid_latitude_rejected():
         **VALID_PAYLOAD,
         "location": {
             **VALID_PAYLOAD["location"],
-            "latitude": 120.0,
+            "lat": 120.0,
         },
     }
 
@@ -121,6 +123,31 @@ def test_invalid_latitude_rejected():
     )
 
     assert response.status_code == 422
+
+
+def test_legacy_latitude_longitude_payload_is_still_normalized():
+    payload = {
+        **VALID_PAYLOAD,
+        "location": {
+            "village": "Munnar",
+            "ward": "Ward_3",
+            "latitude": 10.0889,
+            "longitude": 77.0595,
+        },
+    }
+
+    response = client.post(
+        "/api/v1/ingest/sensors",
+        json=payload,
+    )
+
+    assert response.status_code == 202
+    assert response.json()["canonical_location"] == {
+        "village": "Munnar",
+        "ward": "Ward_3",
+        "latitude": 10.0889,
+        "longitude": 77.0595,
+    }
 
 
 def test_mock_prediction_is_deterministic():

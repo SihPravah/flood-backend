@@ -28,5 +28,6 @@ def ingest_sensor(payload: SensorIngestionPayload):
         "observed_at": payload.timestamp,
         "received_at": received_at,
         "age_seconds": age_seconds,
+        "canonical_location": payload.canonical_location,
         "prediction": prediction.model_dump(),
     }

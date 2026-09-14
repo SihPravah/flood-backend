@@ -1,13 +1,38 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+)
 
 
 class Location(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True
+    )
+
     village: str
     ward: str
-    latitude: float = Field(ge=-90.0, le=90.0)
-    longitude: float = Field(ge=-180.0, le=180.0)
+    lat: float = Field(
+        ge=-90.0,
+        le=90.0,
+        validation_alias=AliasChoices(
+            "lat",
+            "latitude",
+        ),
+        serialization_alias="lat",
+    )
+    lon: float = Field(
+        ge=-180.0,
+        le=180.0,
+        validation_alias=AliasChoices(
+            "lon",
+            "longitude",
+        ),
+        serialization_alias="lon",
+    )
 
 
 class SensorMetrics(BaseModel):
@@ -21,3 +46,12 @@ class SensorIngestionPayload(BaseModel):
     timestamp: datetime
     location: Location
     sensor_metrics: SensorMetrics
+
+    @property
+    def canonical_location(self) -> dict[str, float | str]:
+        return {
+            "village": self.location.village,
+            "ward": self.location.ward,
+            "latitude": self.location.lat,
+            "longitude": self.location.lon,
+        }
