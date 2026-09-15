@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.schemas.map import (
     RoadRecommendation,
@@ -10,13 +10,27 @@ from app.schemas.map import (
 
 
 class RoutePoint(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True
+    )
+
     lon: float = Field(
         ge=-180.0,
         le=180.0,
+        validation_alias=AliasChoices(
+            "lon",
+            "longitude",
+        ),
+        serialization_alias="longitude",
     )
     lat: float = Field(
         ge=-90.0,
         le=90.0,
+        validation_alias=AliasChoices(
+            "lat",
+            "latitude",
+        ),
+        serialization_alias="latitude",
     )
     label: str | None = None
     place_id: str | None = None
@@ -31,6 +45,7 @@ class SafeRouteRequest(BaseModel):
         "fastest_available",
     ] = "safest"
     allow_avoid_segments: bool = False
+    snapshot_id: str | None = None
 
 
 class RouteSegment(BaseModel):
@@ -89,4 +104,3 @@ class NoSafeRouteResponse(BaseModel):
     blocked_by: list[RouteSegment]
     provenance: SourceMetadata
     safety_note: str
-

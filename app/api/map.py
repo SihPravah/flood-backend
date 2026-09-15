@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.config import settings
 from app.schemas.map import (
@@ -8,17 +8,20 @@ from app.schemas.map import (
     MapIntelligenceResponse,
     RoadDetail,
     SensorDetail,
+    StructuredEvent,
 )
 from app.services.data_state import DataStateService
 from app.services.dependencies import (
     get_data_state_service,
     get_ml_intelligence_service,
+    get_monitoring_state_store,
 )
 from app.services.errors import (
     DataStateServiceError,
     MLIntelligenceServiceError,
 )
 from app.services.intelligence import MLIntelligenceService
+from app.services.state_store import MonitoringStateStore
 
 router = APIRouter()
 
@@ -29,21 +32,34 @@ router = APIRouter()
     summary="Return the current PRAVAHA city map snapshot.",
 )
 def map_intelligence(
+    scenario_stage: str | None = Query(default=None),
     data_service: DataStateService = Depends(
         get_data_state_service
     ),
     ml_service: MLIntelligenceService = Depends(
         get_ml_intelligence_service
     ),
+    state_store: MonitoringStateStore = Depends(get_monitoring_state_store),
 ):
+    if scenario_stage is None:
+        latest_snapshot = state_store.latest_snapshot()
+        if latest_snapshot is not None:
+            return MapIntelligenceResponse.model_validate(latest_snapshot)
+
+    stage = _active_stage(scenario_stage, state_store)
     fused_state = _get_fused_state(
         data_service,
         settings.default_catchment_id,
+        stage,
     )
     try:
-        return ml_service.build_map_intelligence(
-            fused_state
+        snapshot = ml_service.build_map_intelligence(
+            fused_state,
+            stage,
         )
+        state_store.record_snapshot(snapshot, scenario_stage=stage)
+        state_store.record_events(snapshot.events)
+        return snapshot
     except MLIntelligenceServiceError as exc:
         raise _service_unavailable(exc) from exc
 
@@ -55,21 +71,26 @@ def map_intelligence(
 )
 def catchment_detail(
     catchment_id: str,
+    scenario_stage: str | None = Query(default=None),
     data_service: DataStateService = Depends(
         get_data_state_service
     ),
     ml_service: MLIntelligenceService = Depends(
         get_ml_intelligence_service
     ),
+    state_store: MonitoringStateStore = Depends(get_monitoring_state_store),
 ):
+    stage = _active_stage(scenario_stage, state_store)
     fused_state = _get_fused_state(
         data_service,
         catchment_id,
+        stage,
     )
     try:
         return ml_service.get_catchment_detail(
             fused_state,
             catchment_id,
+            stage,
         )
     except MLIntelligenceServiceError as exc:
         raise _service_unavailable(exc) from exc
@@ -81,13 +102,17 @@ def catchment_detail(
 )
 def drain_detail(
     drain_id: str,
+    scenario_stage: str | None = Query(default=None),
     ml_service: MLIntelligenceService = Depends(
         get_ml_intelligence_service
     ),
+    state_store: MonitoringStateStore = Depends(get_monitoring_state_store),
 ):
+    stage = _active_stage(scenario_stage, state_store)
     try:
         return ml_service.get_drain_detail(
-            drain_id
+            drain_id,
+            stage,
         )
     except MLIntelligenceServiceError as exc:
         raise _service_unavailable(exc) from exc
@@ -99,13 +124,17 @@ def drain_detail(
 )
 def road_detail(
     road_id: str,
+    scenario_stage: str | None = Query(default=None),
     ml_service: MLIntelligenceService = Depends(
         get_ml_intelligence_service
     ),
+    state_store: MonitoringStateStore = Depends(get_monitoring_state_store),
 ):
+    stage = _active_stage(scenario_stage, state_store)
     try:
         return ml_service.get_road_detail(
-            road_id
+            road_id,
+            stage,
         )
     except MLIntelligenceServiceError as exc:
         raise _service_unavailable(exc) from exc
@@ -117,13 +146,17 @@ def road_detail(
 )
 def sensor_detail(
     device_id: str,
+    scenario_stage: str | None = Query(default=None),
     ml_service: MLIntelligenceService = Depends(
         get_ml_intelligence_service
     ),
+    state_store: MonitoringStateStore = Depends(get_monitoring_state_store),
 ):
+    stage = _active_stage(scenario_stage, state_store)
     try:
         return ml_service.get_sensor_detail(
-            device_id
+            device_id,
+            stage,
         )
     except MLIntelligenceServiceError as exc:
         raise _service_unavailable(exc) from exc
@@ -134,12 +167,41 @@ def sensor_detail(
     response_model=list[Alert],
 )
 def alerts(
+    scenario_stage: str | None = Query(default=None),
     ml_service: MLIntelligenceService = Depends(
         get_ml_intelligence_service
     ),
+    state_store: MonitoringStateStore = Depends(get_monitoring_state_store),
 ):
+    stage = _active_stage(scenario_stage, state_store)
     try:
-        return ml_service.get_alerts()
+        return ml_service.get_alerts(stage)
+    except MLIntelligenceServiceError as exc:
+        raise _service_unavailable(exc) from exc
+
+
+@router.get(
+    "/events",
+    response_model=list[StructuredEvent],
+)
+def events(
+    scenario_stage: str | None = Query(default=None),
+    ml_service: MLIntelligenceService = Depends(
+        get_ml_intelligence_service
+    ),
+    state_store: MonitoringStateStore = Depends(get_monitoring_state_store),
+):
+    if scenario_stage is None and state_store.recent_events():
+        return [
+            StructuredEvent.model_validate(event)
+            for event in state_store.recent_events()
+        ]
+
+    stage = _active_stage(scenario_stage, state_store)
+    try:
+        current_events = ml_service.get_events(stage)
+        state_store.record_events(current_events)
+        return current_events
     except MLIntelligenceServiceError as exc:
         raise _service_unavailable(exc) from exc
 
@@ -147,10 +209,12 @@ def alerts(
 def _get_fused_state(
     data_service: DataStateService,
     catchment_id: str,
+    scenario_stage: str,
 ) -> dict:
     try:
         return data_service.get_fused_catchment_state(
-            catchment_id
+            catchment_id,
+            scenario_stage,
         )
     except DataStateServiceError as exc:
         raise _service_unavailable(exc) from exc
@@ -164,3 +228,11 @@ def _service_unavailable(
         detail=str(exc),
     )
 
+
+def _active_stage(
+    scenario_stage: str | None,
+    state_store: MonitoringStateStore,
+) -> str:
+    if scenario_stage is not None:
+        return scenario_stage
+    return state_store.latest_scenario_stage(default=settings.demo_stage)

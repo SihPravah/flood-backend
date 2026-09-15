@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     environment: str = "development"
 
     demo_mode: bool = True
+    demo_stage: str = "WARNING"
     default_catchment_id: str = "UK-CHM-DEHRADUN-01"
 
     use_real_ml: bool = False
@@ -18,6 +19,8 @@ class Settings(BaseSettings):
     cors_origins: list[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
     ]
 
     class Config:

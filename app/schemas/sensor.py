@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import (
     AliasChoices,
@@ -42,8 +43,26 @@ class SensorMetrics(BaseModel):
 
 
 class SensorIngestionPayload(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True
+    )
+
     device_id: str
-    timestamp: datetime
+    timestamp: datetime = Field(
+        validation_alias=AliasChoices(
+            "timestamp",
+            "observed_at",
+        ),
+        serialization_alias="timestamp",
+    )
+    received_at: datetime | None = None
+    provenance: Literal[
+        "OBSERVED",
+        "DERIVED",
+        "ESTIMATED",
+        "SIMULATED",
+        "MISSING",
+    ] = "OBSERVED"
     location: Location
     sensor_metrics: SensorMetrics
 
