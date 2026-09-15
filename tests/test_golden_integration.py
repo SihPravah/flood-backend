@@ -24,8 +24,8 @@ def test_golden_sensor_event_updates_state_intelligence_and_routing():
     )
 
     assert normal["status"] == "accepted"
-    assert normal["canonical_location"]["latitude"] == 30.329
-    assert normal["canonical_location"]["longitude"] == 78.039
+    assert normal["canonical_location"]["latitude"] == 30.285029
+    assert normal["canonical_location"]["longitude"] == 77.978689
     assert normal["provenance"] == "OBSERVED"
     assert normal["fused_state"]["rainfall"]["intensity"]["value"] == 4.0
     assert normal["fused_state"]["soil"]["saturation"] == 0.34
@@ -104,10 +104,10 @@ def test_publisher_payload_uses_external_lat_lon_and_observed_at():
         rainfall = 48.0
         soil = 0.82
         tilt = 0.0
-        lat = 30.329
-        lon = 78.039
+        lat = 30.285029
+        lon = 77.978689
         village = "Chandrabani"
-        ward = "Ward 7"
+        ward = "Chandrabani settlement point"
         observed_at = "2026-09-09T09:00:00Z"
         received_at = None
         provenance = "OBSERVED"
@@ -117,9 +117,9 @@ def test_publisher_payload_uses_external_lat_lon_and_observed_at():
     assert payload["observed_at"] == "2026-09-09T09:00:00Z"
     assert payload["location"] == {
         "village": "Chandrabani",
-        "ward": "Ward 7",
-        "lat": 30.329,
-        "lon": 78.039,
+        "ward": "Chandrabani settlement point",
+        "lat": 30.285029,
+        "lon": 77.978689,
     }
     assert payload["sensor_metrics"]["rainfall_mm_per_hr"] == 48.0
     assert payload["sensor_metrics"]["soil_moisture_percentage"] == 82.0
@@ -142,9 +142,9 @@ def post_sensor_event(
             "received_at": observed_at,
             "location": {
                 "village": "Chandrabani",
-                "ward": "Ward 7",
-                "lat": 30.329,
-                "lon": 78.039,
+                "ward": "Chandrabani settlement point",
+                "lat": 30.285029,
+                "lon": 77.978689,
             },
             "sensor_metrics": {
                 "rainfall_mm_per_hr": rainfall,
@@ -160,21 +160,21 @@ def post_sensor_event(
 
 def route_payload(destination_id: str) -> dict:
     destination = {
-        "lon": 78.056,
-        "lat": 30.338,
+            "lon": 77.9940942,
+            "lat": 30.28497,
         "place_id": destination_id,
     }
     if destination_id == "DEMO-NO-SAFE-ROUTE":
         destination = {
-            "lon": 78.055,
-            "lat": 30.342,
+            "lon": 77.9767205,
+            "lat": 30.2809907,
             "place_id": destination_id,
         }
 
     return {
         "origin": {
-            "lon": 78.03,
-            "lat": 30.32,
+            "lon": 77.978689,
+            "lat": 30.285029,
         },
         "destination": destination,
         "strategy": "safest",

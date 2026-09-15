@@ -9,6 +9,7 @@ from app.schemas.map import (
     CityStatus,
     DrainDetail,
     FeatureCollection,
+    LocationInspection,
     MapIntelligenceResponse,
     MapLayers,
     MapSummary,
@@ -27,6 +28,7 @@ from app.schemas.routes import (
     SafeRouteSuccess,
 )
 from app.services.errors import MLIntelligenceServiceError
+from app.services import gis_context as gis
 
 
 ScenarioStage = Literal["NORMAL", "WATCH", "WARNING", "SEVERE"]
@@ -34,13 +36,12 @@ ScenarioStage = Literal["NORMAL", "WATCH", "WARNING", "SEVERE"]
 SCENARIO_ID = "DEMO-001"
 CITY_ID = "UK-DEHRADUN"
 CATCHMENT_ID = "UK-CHM-DEHRADUN-01"
-WARD_ID = "WARD-DEHRADUN-07"
 VILLAGE_ID = "VILLAGE-CHANDRABANI"
 DRAIN_ID = "D-22"
 ROAD_DIRECT_ID = "ROAD-SHELTER-CORRIDOR"
 ROAD_BYPASS_ID = "ROAD-HIGHER-GROUND-BYPASS"
 ROAD_CLOSED_ID = "ROAD-BRIDGE-APPROACH"
-ROAD_HILLSIDE_ID = "ROAD-HILLSIDE-LINK"
+ROAD_HILLSIDE_ID = "ROAD-TRANSPORT-NAGAR-CONNECTOR"
 SENSOR_PRIMARY_ID = "SENSOR-SIM-RAIN-SOIL-01"
 SENSOR_SECONDARY_ID = "SENSOR-SIM-RAIN-SOIL-02"
 SHELTER_ID = "SHELTER-SCHOOL-01"
@@ -230,6 +231,15 @@ class MLIntelligenceService:
     ) -> list[Alert]:
         raise NotImplementedError
 
+    def inspect_location(
+        self,
+        *,
+        longitude: float,
+        latitude: float,
+        scenario_stage: str = "WARNING",
+    ) -> LocationInspection:
+        raise NotImplementedError
+
     def get_events(
         self,
         scenario_stage: str = "WARNING",
@@ -268,8 +278,8 @@ class DemoMLIntelligenceService(MLIntelligenceService):
             roads_to_avoid=1 if profile.road_recommendation == "AVOID" else 0,
             confirmed_road_closures=1 if stage == "SEVERE" else 0,
             active_alerts=len(self.get_alerts(stage)),
-            highest_risk_catchment="Chandrabani upper catchment",
-            highest_risk_ward="Ward 7 demo sector",
+            highest_risk_catchment="Chandrabani focused micro-catchment",
+            highest_risk_ward="Chandrabani settlement point",
             shelters_available=1,
             exposed_population=850 if stage == "SEVERE" else None,
             source_health=source_health,
@@ -285,7 +295,7 @@ class DemoMLIntelligenceService(MLIntelligenceService):
             city=CityStatus(
                 city_id=CITY_ID,
                 name="Dehradun",
-                district="Dehradun district demo sector",
+                district="Chandrabani, Dehradun",
                 operational_status=profile.city_status,
                 confidence=profile.confidence,
                 reasons=list(profile.reasons),
@@ -296,6 +306,7 @@ class DemoMLIntelligenceService(MLIntelligenceService):
             source_health=source_health,
             events=events,
             model_metadata=_model_metadata(stage, generated_at, profile),
+            study_area=gis.STUDY_AREA,
         )
 
     def get_catchment_detail(
@@ -310,8 +321,8 @@ class DemoMLIntelligenceService(MLIntelligenceService):
         return CatchmentDetail(
             type="catchment",
             catchment_id=catchment_id,
-            name="Chandrabani upper catchment",
-            ward_name="Ward 7 demo sector",
+            name="Chandrabani focused micro-catchment",
+            ward_name="Chandrabani settlement context",
             snapshot_id=_snapshot_id(stage, generated_at),
             risk_score=profile.risk_score,
             risk_level=profile.risk_level,
@@ -320,6 +331,9 @@ class DemoMLIntelligenceService(MLIntelligenceService):
             provenance=_simulated_sources(
                 [SENSOR_PRIMARY_ID],
                 static_verification_status="ESTIMATED",
+                terrain_source_status=gis.TERRAIN["derived_status"],
+                terrain_source=gis.TERRAIN["source_name"],
+                catchment_geometry_status="ESTIMATED",
             ),
             last_updated=generated_at,
             fused_state="FusedCatchmentState v2.1",
@@ -348,12 +362,17 @@ class DemoMLIntelligenceService(MLIntelligenceService):
             rainfall_windows=_rainfall_windows(profile),
             soil=fused_state["soil"],
             terrain={
-                "elevation_m": 642,
-                "mean_slope_fraction": 0.18,
-                "catchment_area_km2": 4.6,
+                "elevation_m": gis.TERRAIN["mean_elevation_m"],
+                "min_elevation_m": gis.TERRAIN["min_elevation_m"],
+                "max_elevation_m": gis.TERRAIN["max_elevation_m"],
+                "mean_slope_deg": gis.TERRAIN["mean_slope_deg"],
+                "mean_slope_fraction": gis.TERRAIN["mean_slope_fraction"],
+                "catchment_area_km2": gis.STUDY_AREA["approx_area_km2"],
                 "curve_number": 79,
                 "hand_m": None,
                 "twi": None,
+                "terrain_source": gis.TERRAIN["source_name"],
+                "source_status": gis.TERRAIN["derived_status"],
             },
             anticipation={
                 "trend": "RISING" if stage != "NORMAL" else "STABLE",
@@ -378,8 +397,8 @@ class DemoMLIntelligenceService(MLIntelligenceService):
             },
             cascade=_cascade(profile),
             impact={
-                "affected_wards": [WARD_ID],
-                "exposed_roads": [ROAD_DIRECT_ID, ROAD_HILLSIDE_ID],
+                "affected_wards": [VILLAGE_ID],
+                "exposed_roads": [ROAD_DIRECT_ID, ROAD_CLOSED_ID],
                 "threatened_shelters": [SHELTER_ID]
                 if stage == "SEVERE"
                 else [],
@@ -404,8 +423,8 @@ class DemoMLIntelligenceService(MLIntelligenceService):
         return DrainDetail(
             type="drain",
             drain_id=drain_id,
-            name="D-22 hillside collector",
-            drain_type="open lined municipal drain",
+            name="D-22 estimated municipal collector",
+            drain_type="estimated municipal collector aligned to OSM stream corridor",
             snapshot_id=_snapshot_id(stage, generated_at),
             risk_score=round(min(profile.drain_utilization / 1.6, 1.0), 2),
             risk_level="HIGH" if profile.drain_utilization >= 1.0 else "WATCH",
@@ -419,6 +438,8 @@ class DemoMLIntelligenceService(MLIntelligenceService):
             provenance=_simulated_sources(
                 [CATCHMENT_ID],
                 capacity_verification_status="ESTIMATED",
+                geometry_source_status="ESTIMATED",
+                geometry_basis="OSM stream corridor; not verified municipal storm drain",
             ),
             last_updated=generated_at,
             upstream_nodes=["D-22-U1", "D-22-U2"],
@@ -436,7 +457,7 @@ class DemoMLIntelligenceService(MLIntelligenceService):
             condition_factor=0.82,
             affected_roads=[ROAD_DIRECT_ID],
             contributing_catchments=[CATCHMENT_ID],
-            nearby_settlements=[WARD_ID, VILLAGE_ID],
+            nearby_settlements=[VILLAGE_ID],
             timeline=_timeline(stage),
             provenance_table=[
                 row
@@ -455,6 +476,7 @@ class DemoMLIntelligenceService(MLIntelligenceService):
         generated_at = _demo_time(stage)
         is_bypass = road_id == ROAD_BYPASS_ID
         is_closed = road_id == ROAD_CLOSED_ID and stage == "SEVERE"
+        road_static = gis.ROADS.get(road_id, {})
         recommendation = (
             "CLOSED"
             if is_closed
@@ -477,10 +499,10 @@ class DemoMLIntelligenceService(MLIntelligenceService):
         return RoadDetail(
             type="road",
             road_id=road_id,
-            name=_road_name(road_id),
-            road_class="collector road" if is_bypass else "urban arterial",
-            segment_length_km=2.8 if is_bypass else 1.9,
-            jurisdiction="Dehradun municipal demo sector",
+            name=str(road_static.get("name") or _road_name(road_id)),
+            road_class=str(road_static.get("road_class") or "mapped road"),
+            segment_length_km=_road_length_km(road_id),
+            jurisdiction="Chandrabani focused study area, Dehradun",
             snapshot_id=_snapshot_id(stage, generated_at),
             risk_score=risk_score,
             risk_level=risk_level,
@@ -495,7 +517,17 @@ class DemoMLIntelligenceService(MLIntelligenceService):
             else ["route_segment_requires_monitoring"],
             provenance=_simulated_sources(
                 [DRAIN_ID],
-                road_verification_status="ESTIMATED",
+                road_verification_status=road_static.get(
+                    "source_status",
+                    "ESTIMATED",
+                ),
+                road_source="OpenStreetMap",
+                road_source_osm_id=road_static.get("source_osm_id"),
+                hazard_status_basis=(
+                    "DEMO_AUTHORITY_CLOSURE_ONLY"
+                    if is_closed
+                    else "MODEL_RECOMMENDATION"
+                ),
             ),
             last_updated=generated_at,
             recommendation=recommendation,
@@ -506,8 +538,10 @@ class DemoMLIntelligenceService(MLIntelligenceService):
             authority_closed=is_closed,
             terrain={
                 "depression_score": 0.12 if is_bypass else 0.68,
-                "stream_proximity_m": 180 if is_bypass else 38,
-                "mean_slope_fraction": 0.07 if is_bypass else 0.14,
+                "stream_proximity_m": _nearest_stream_distance_m(road_id),
+                "mean_slope_deg": gis.TERRAIN["mean_slope_deg"],
+                "mean_slope_fraction": gis.TERRAIN["mean_slope_fraction"],
+                "terrain_source_status": gis.TERRAIN["derived_status"],
             },
             historical_waterlogging_score=0.08 if is_bypass else 0.76,
             landslide_exposure={
@@ -529,9 +563,9 @@ class DemoMLIntelligenceService(MLIntelligenceService):
                 ),
                 _metric(
                     "Stream proximity",
-                    180 if is_bypass else 38,
+                    _nearest_stream_distance_m(road_id),
                     "m",
-                    "ESTIMATED",
+                    "DERIVED",
                 ),
                 _metric(
                     "Historical waterlogging",
@@ -543,7 +577,7 @@ class DemoMLIntelligenceService(MLIntelligenceService):
             related_infrastructure=[
                 _metric("Associated drain", DRAIN_ID, None, "ESTIMATED"),
                 _metric("Nearest shelter", SHELTER_ID, None, "SIMULATED"),
-                _metric("Alternative road", ROAD_BYPASS_ID, None, "SIMULATED"),
+                _metric("Alternative road", ROAD_BYPASS_ID, None, "OPEN_REAL_DATA"),
             ],
             anticipation=[
                 _metric(
@@ -584,8 +618,8 @@ class DemoMLIntelligenceService(MLIntelligenceService):
             device_id=device_id,
             sensor_type="rainfall_soil_tilt_node",
             snapshot_id=_snapshot_id(stage, generated_at),
-            latitude=30.329 if device_id == SENSOR_PRIMARY_ID else 30.337,
-            longitude=78.039 if device_id == SENSOR_PRIMARY_ID else 78.049,
+            latitude=30.285029 if device_id == SENSOR_PRIMARY_ID else 30.2854,
+            longitude=77.978689 if device_id == SENSOR_PRIMARY_ID else 77.9926,
             source="backend-demo-data-iot-adapter",
             measurements={
                 "rainfall_mm_per_hr": None
@@ -630,8 +664,11 @@ class DemoMLIntelligenceService(MLIntelligenceService):
                 risk_level=profile.risk_level,
                 severity=profile.risk_level,
                 confidence=profile.confidence,
-                location="Chandrabani upper catchment",
-                message=f"{profile.risk_level} demo flood intelligence for Ward 7 corridor.",
+                location="Chandrabani focused micro-catchment",
+                message=(
+                    f"{profile.risk_level} demo flood intelligence for the "
+                    "Chandrabani settlement corridor."
+                ),
                 recommended_review=(
                     "Inspect AVOID roads and drainage overload before dispatch."
                     if stage in {"WARNING", "SEVERE"}
@@ -666,6 +703,141 @@ class DemoMLIntelligenceService(MLIntelligenceService):
                 )
             )
         return alerts
+
+    def inspect_location(
+        self,
+        *,
+        longitude: float,
+        latitude: float,
+        scenario_stage: str = "WARNING",
+    ) -> LocationInspection:
+        stage = _stage(scenario_stage)
+        profile = PROFILES[stage]
+        generated_at = _demo_time(stage)
+        nearest_road = gis.nearest_named(
+            longitude,
+            latitude,
+            gis.ROADS,
+        )
+        nearest_stream = gis.nearest_named(
+            longitude,
+            latitude,
+            gis.STREAMS,
+        )
+        nearest_settlement = gis.nearest_named(
+            longitude,
+            latitude,
+            gis.SETTLEMENTS,
+        )
+        nearest_asset = gis.nearest_named(
+            longitude,
+            latitude,
+            gis.CRITICAL_ASSETS,
+        )
+        elevation = (
+            gis.nearest_elevation_m(longitude, latitude)
+            if gis.within_study_area(longitude, latitude)
+            else None
+        )
+
+        return LocationInspection(
+            id="clicked-location",
+            snapshot_id=_snapshot_id(stage, generated_at),
+            latitude=latitude,
+            longitude=longitude,
+            jurisdiction=(
+                "Chandrabani, Dehradun"
+                if gis.within_study_area(longitude, latitude)
+                else "Outside focused study area"
+            ),
+            ward_or_village=_entity_name(gis.SETTLEMENTS, nearest_settlement),
+            catchment_id=CATCHMENT_ID
+            if gis.within_study_area(longitude, latitude)
+            else None,
+            nearest_road=_entity_name(gis.ROADS, nearest_road),
+            nearest_stream=_entity_name(gis.STREAMS, nearest_stream),
+            nearest_drain=DRAIN_ID if nearest_stream is not None else None,
+            nearest_shelter=gis.SHELTER["name"],
+            terrain=[
+                _metric(
+                    "Nearest SRTM elevation",
+                    elevation,
+                    "m",
+                    gis.TERRAIN["source_status"]
+                    if elevation is not None
+                    else "NOT_AVAILABLE",
+                ),
+                _metric(
+                    "Mean catchment slope",
+                    gis.TERRAIN["mean_slope_deg"],
+                    "deg",
+                    gis.TERRAIN["derived_status"],
+                ),
+                _metric("HAND", None, "m", "NOT_AVAILABLE"),
+                _metric("TWI", None, None, "NOT_AVAILABLE"),
+            ],
+            hydrology=[
+                _metric("Catchment", CATCHMENT_ID, None, "ESTIMATED"),
+                _metric(
+                    "Nearest stream distance",
+                    _distance_value(nearest_stream),
+                    "m",
+                    "OPEN_REAL_DATA",
+                ),
+                _metric(
+                    "Municipal drain capacity",
+                    "Not measured",
+                    None,
+                    "ESTIMATED",
+                ),
+            ],
+            hazard_context=[
+                _metric(
+                    "Current flood risk",
+                    round(profile.risk_score * 100),
+                    "%",
+                    profile.risk_level,
+                ),
+                _metric(
+                    "Landslide inventory",
+                    "Not available",
+                    None,
+                    "NOT_AVAILABLE",
+                ),
+                _metric(
+                    "Nearest critical asset",
+                    _entity_name(gis.CRITICAL_ASSETS, nearest_asset),
+                    None,
+                    "OPEN_REAL_DATA",
+                ),
+            ],
+            data_quality=[
+                _metric(
+                    "Terrain source",
+                    gis.TERRAIN["source_name"],
+                    None,
+                    gis.TERRAIN["derived_status"],
+                ),
+                _metric(
+                    "Road/stream source",
+                    "OpenStreetMap",
+                    None,
+                    "OPEN_REAL_DATA",
+                ),
+                _metric(
+                    "Shelter designation",
+                    gis.SHELTER["designation_status"],
+                    None,
+                    "DEMO",
+                ),
+                _metric(
+                    "Dynamic conditions",
+                    SCENARIO_ID,
+                    None,
+                    "SIMULATED",
+                ),
+            ],
+        )
 
     def get_events(
         self,
@@ -729,7 +901,10 @@ class DemoMLIntelligenceService(MLIntelligenceService):
                     current_value="CLOSED",
                     severity="SEVERE",
                     title="Authority closure active",
-                    message="Bridge approach is explicitly CLOSED by authority-confirmed demo fixture.",
+                    message=(
+                        "Mapped unnamed connector is explicitly CLOSED by a "
+                        "demo authority-closure fixture."
+                    ),
                     reasons=["authority_confirmed_closure"],
                     provenance=_simulated_sources([ROAD_CLOSED_ID]),
                 )
@@ -820,17 +995,20 @@ class DemoMLIntelligenceService(MLIntelligenceService):
                 else "Deterministic DEMO-001 source",
             ),
             SourceHealth(
-                source_id="STATIC-GIS-DEMO",
-                name="Demo DEM/GIS assets",
+                source_id="STATIC-GIS-CHANDRABANI",
+                name="Chandrabani static GIS context",
                 category="STATIC_GIS",
                 status="STATIC",
                 last_success_at=None,
                 last_observation_at=None,
                 age_seconds=None,
                 expected_interval_seconds=None,
-                freshness="DEGRADED",
-                provenance="ESTIMATED",
-                message="Static GIS is estimated for SIH demonstration.",
+                freshness="GOOD",
+                provenance="DERIVED",
+                message=(
+                    "SRTM elevation plus OSM roads, streams, settlements and POIs; "
+                    "municipal drain capacity and shelter designation remain demo/estimated."
+                ),
             ),
             SourceHealth(
                 source_id="MODEL-DEVELOPMENT-FALLBACK",
@@ -857,45 +1035,36 @@ def _demo_layers(stage: ScenarioStage) -> MapLayers:
                     CATCHMENT_ID,
                     "catchment",
                     "Polygon",
-                    [
-                        [
-                            [78.028, 30.318],
-                            [78.058, 30.318],
-                            [78.058, 30.344],
-                            [78.028, 30.344],
-                            [78.028, 30.318],
-                        ]
-                    ],
+                    gis.bbox_polygon_coordinates(),
                     {
-                        "name": "Chandrabani upper catchment",
+                        "name": "Chandrabani focused micro-catchment",
                         "risk_level": profile.risk_level,
                         "risk_score": profile.risk_score,
                         "confidence": profile.confidence,
+                        "source_status": "ESTIMATED",
+                        "mean_elevation_m": gis.TERRAIN["mean_elevation_m"],
+                        "mean_slope_deg": gis.TERRAIN["mean_slope_deg"],
                     },
                 )
             ]
         ),
         wards=_collection(
             [
-                _feature(
-                    WARD_ID,
+                gis.point_feature(
+                    settlement_id,
                     "ward",
-                    "Polygon",
-                    [
-                        [
-                            [78.034, 30.322],
-                            [78.052, 30.322],
-                            [78.052, 30.339],
-                            [78.034, 30.339],
-                            [78.034, 30.322],
-                        ]
-                    ],
+                    settlement["coordinates"],
                     {
-                        "name": "Ward 7 demo sector",
+                        "name": settlement["name"],
+                        "admin_level": settlement["admin_level"],
                         "risk_level": profile.risk_level,
                         "confidence": profile.confidence,
+                        "source": settlement["source"],
+                        "source_status": settlement["source_status"],
+                        "source_osm_id": settlement["source_osm_id"],
                     },
                 )
+                for settlement_id, settlement in gis.SETTLEMENTS.items()
             ]
         ),
         rainfall=_collection(
@@ -904,18 +1073,11 @@ def _demo_layers(stage: ScenarioStage) -> MapLayers:
                     "RAIN-DEMO-001-CELL",
                     "rainfall",
                     "Polygon",
-                    [
-                        [
-                            [78.032, 30.321],
-                            [78.052, 30.321],
-                            [78.052, 30.341],
-                            [78.032, 30.341],
-                            [78.032, 30.321],
-                        ]
-                    ],
+                    gis.bbox_polygon_coordinates(),
                     {
                         "intensity_mm_per_hr": profile.rainfall_intensity_mm_per_hr,
                         "risk_level": profile.risk_level,
+                        "source_status": "SIMULATED",
                     },
                 )
             ]
@@ -926,7 +1088,7 @@ def _demo_layers(stage: ScenarioStage) -> MapLayers:
                     SENSOR_PRIMARY_ID,
                     "sensor",
                     "Point",
-                    [78.039, 30.329],
+                    [77.978689, 30.285029],
                     {
                         "name": "Demo rainfall and soil node",
                         "freshness": "GOOD",
@@ -938,7 +1100,7 @@ def _demo_layers(stage: ScenarioStage) -> MapLayers:
                     SENSOR_SECONDARY_ID,
                     "sensor",
                     "Point",
-                    [78.049, 30.337],
+                    [77.9926, 30.2854],
                     {
                         "name": "Secondary hillside sensor",
                         "freshness": "UNUSABLE"
@@ -954,69 +1116,57 @@ def _demo_layers(stage: ScenarioStage) -> MapLayers:
         ),
         rivers=_collection(
             [
-                _feature(
-                    "STREAM-DEMO-001",
+                gis.line_feature(
+                    stream_id,
                     "river",
-                    "LineString",
-                    [[78.026, 30.317], [78.043, 30.329], [78.061, 30.343]],
-                    {"name": "Seasonal stream", "stream_order": 2},
+                    stream["coordinates"],
+                    {
+                        "name": stream["name"],
+                        "stream_order": 2,
+                        "source": stream["source"],
+                        "source_status": stream["source_status"],
+                        "source_osm_id": stream["source_osm_id"],
+                    },
                 )
+                for stream_id, stream in gis.STREAMS.items()
             ]
         ),
         drains=_collection(
             [
-                _feature(
+                gis.line_feature(
                     DRAIN_ID,
                     "drain",
-                    "LineString",
-                    [[78.030, 30.320], [78.038, 30.328], [78.047, 30.336]],
+                    gis.STREAM_COORDS,
                     {
-                        "name": "D-22 hillside collector",
+                        "name": "D-22 estimated municipal collector",
                         "risk_level": "HIGH"
                         if profile.drain_utilization >= 1.0
                         else "WATCH",
                         "utilization": profile.drain_utilization,
+                        "source_status": "ESTIMATED",
+                        "capacity_verification_status": "ESTIMATED",
+                        "geometry_basis": "OSM stream geometry; not verified municipal drain",
                     },
                 )
             ]
         ),
         roads=_collection(
             [
-                _feature(
-                    ROAD_DIRECT_ID,
+                gis.line_feature(
+                    road_id,
                     "road",
-                    "LineString",
-                    [[78.030, 30.3202], [78.037, 30.3282], [78.047, 30.337]],
+                    road["coordinates"],
                     {
-                        "name": "Shelter corridor",
-                        "recommendation": profile.road_recommendation,
-                        "risk_level": profile.risk_level,
+                        "name": road["name"],
+                        "road_class": road["road_class"],
+                        "recommendation": _road_recommendation(road_id, stage, profile),
+                        "risk_level": _road_risk_level(road_id, stage, profile),
+                        "source": road["source"],
+                        "source_status": road["source_status"],
+                        "source_osm_id": road["source_osm_id"],
                     },
-                ),
-                _feature(
-                    ROAD_BYPASS_ID,
-                    "road",
-                    "LineString",
-                    [[78.029, 30.319], [78.041, 30.326], [78.056, 30.338]],
-                    {
-                        "name": "Higher-ground bypass",
-                        "recommendation": "PASSABLE"
-                        if stage == "NORMAL"
-                        else "CAUTION",
-                        "risk_level": "LOW" if stage == "NORMAL" else "WATCH",
-                    },
-                ),
-                _feature(
-                    ROAD_HILLSIDE_ID,
-                    "road",
-                    "LineString",
-                    [[78.045, 30.330], [78.055, 30.342]],
-                    {
-                        "name": "Hillside link",
-                        "recommendation": "AVOID" if stage == "SEVERE" else "CAUTION",
-                        "risk_level": "HIGH" if stage == "SEVERE" else "WATCH",
-                    },
-                ),
+                )
+                for road_id, road in gis.ROADS.items()
             ]
         ),
         landslide=_collection(
@@ -1027,17 +1177,19 @@ def _demo_layers(stage: ScenarioStage) -> MapLayers:
                     "Polygon",
                     [
                         [
-                            [78.044, 30.330],
-                            [78.057, 30.330],
-                            [78.057, 30.343],
-                            [78.044, 30.343],
-                            [78.044, 30.330],
+                            [77.971, 30.290],
+                            [77.980, 30.290],
+                            [77.980, 30.298],
+                            [77.971, 30.298],
+                            [77.971, 30.290],
                         ]
                     ],
                     {
-                        "name": "S-01 steep saturated slope",
+                        "name": "DEMO steep-slope susceptibility zone",
                         "susceptibility": "HIGH" if stage == "SEVERE" else "WATCH",
                         "risk_level": "HIGH" if stage == "SEVERE" else "WATCH",
+                        "source_status": "DEMO",
+                        "historical_inventory_status": "NOT_AVAILABLE",
                     },
                 )
             ]
@@ -1048,12 +1200,14 @@ def _demo_layers(stage: ScenarioStage) -> MapLayers:
                     ROAD_CLOSED_ID,
                     "road",
                     "LineString",
-                    [[78.036, 30.324], [78.042, 30.331]],
+                    [list(point) for point in gis.ROAD_CLOSED_COORDS],
                     {
-                        "name": "Bridge approach",
+                        "name": "DEMO authority closure on mapped unnamed road",
                         "recommendation": "CLOSED",
                         "authority_closed": True,
                         "risk_level": "SEVERE",
+                        "source_status": "OPEN_REAL_DATA",
+                        "status_basis": "DEMO_AUTHORITY_CLOSURE",
                     },
                 )
             ]
@@ -1066,8 +1220,14 @@ def _demo_layers(stage: ScenarioStage) -> MapLayers:
                     SHELTER_ID,
                     "shelter",
                     "Point",
-                    [78.056, 30.338],
-                    {"name": "School shelter", "status": "AVAILABLE"},
+                    list(gis.SHELTER["coordinates"]),
+                    {
+                        "name": gis.SHELTER["name"],
+                        "status": "AVAILABLE",
+                        "source_status": gis.SHELTER["source_status"],
+                        "poi_source_status": gis.SHELTER["poi_source_status"],
+                        "designation_status": gis.SHELTER["designation_status"],
+                    },
                 )
             ]
         ),
@@ -1088,6 +1248,65 @@ def _demo_layers(stage: ScenarioStage) -> MapLayers:
             ]
         ),
     )
+
+
+def _road_recommendation(
+    road_id: str,
+    stage: ScenarioStage,
+    profile: StageProfile,
+) -> str:
+    if road_id == ROAD_CLOSED_ID and stage == "SEVERE":
+        return "CLOSED"
+    if road_id == ROAD_BYPASS_ID:
+        return "PASSABLE" if stage == "NORMAL" else "CAUTION"
+    return profile.road_recommendation
+
+
+def _road_risk_level(
+    road_id: str,
+    stage: ScenarioStage,
+    profile: StageProfile,
+) -> str:
+    if road_id == ROAD_CLOSED_ID and stage == "SEVERE":
+        return "SEVERE"
+    if road_id == ROAD_BYPASS_ID:
+        return "LOW" if stage == "NORMAL" else "WATCH"
+    return profile.risk_level
+
+
+def _road_length_km(road_id: str) -> float | None:
+    road = gis.ROADS.get(road_id)
+    if road is None:
+        return None
+    return round(_line_length_km(road["coordinates"]), 2)
+
+
+def _nearest_stream_distance_m(road_id: str) -> int | None:
+    road = gis.ROADS.get(road_id)
+    if road is None:
+        return None
+    nearest = gis.nearest_named(
+        longitude=road["coordinates"][0][0],
+        latitude=road["coordinates"][0][1],
+        entities=gis.STREAMS,
+    )
+    if nearest is None:
+        return None
+    return int(round(nearest[1]))
+
+
+def _line_length_km(
+    coordinates: tuple[tuple[float, float], ...],
+) -> float:
+    distance_m = 0.0
+    for start, end in zip(coordinates, coordinates[1:]):
+        distance_m += gis.haversine_m(
+            start[1],
+            start[0],
+            end[1],
+            end[0],
+        )
+    return distance_m / 1000.0
 
 
 def _shortest_route(
@@ -1176,7 +1395,7 @@ def _route_graph(
                 min(profile.risk_score + 0.12, 1.0),
                 profile.risk_level,
                 "AVOID",
-                [[78.030, 30.320], [78.039, 30.329], [78.052, 30.335]],
+                _coordinates_list(gis.ROAD_DIRECT_COORDS),
             ),
             _edge(
                 "ORIGIN",
@@ -1187,18 +1406,7 @@ def _route_graph(
                 0.95,
                 "SEVERE",
                 "CLOSED",
-                [[78.036, 30.324], [78.042, 30.331]],
-            ),
-            _edge(
-                "RIDGE",
-                "ISOLATED",
-                ROAD_HILLSIDE_ID,
-                8,
-                2.2,
-                0.82,
-                "HIGH",
-                "AVOID",
-                [[78.045, 30.330], [78.055, 30.342]],
+                _coordinates_list(gis.ROAD_CLOSED_COORDS),
             ),
         ]
     return [
@@ -1211,7 +1419,7 @@ def _route_graph(
             min(profile.risk_score + 0.12, 1.0),
             profile.risk_level,
             profile.road_recommendation,
-            [[78.030, 30.320], [78.039, 30.329], [78.052, 30.335]],
+            _coordinates_list(gis.ROAD_DIRECT_COORDS),
         ),
         _edge(
             "ORIGIN",
@@ -1222,7 +1430,7 @@ def _route_graph(
             0.34,
             "WATCH",
             bypass_recommendation,
-            [[78.029, 30.319], [78.041, 30.326]],
+            _coordinates_list(gis.ROAD_BYPASS_COORDS[:3]),
         ),
         _edge(
             "BYPASS",
@@ -1233,7 +1441,7 @@ def _route_graph(
             0.38,
             "WATCH",
             bypass_recommendation,
-            [[78.041, 30.326], [78.056, 30.338]],
+            _coordinates_list(gis.ROAD_BYPASS_COORDS[2:]),
         ),
         _edge(
             "ORIGIN",
@@ -1244,7 +1452,7 @@ def _route_graph(
             0.95 if stage == "SEVERE" else 0.62,
             "SEVERE" if stage == "SEVERE" else "WARNING",
             "CLOSED" if stage == "SEVERE" else "CAUTION",
-            [[78.036, 30.324], [78.042, 30.331]],
+            _coordinates_list(gis.ROAD_CLOSED_COORDS),
         ),
         _edge(
             "BRIDGE",
@@ -1255,7 +1463,7 @@ def _route_graph(
             0.82 if stage == "SEVERE" else 0.58,
             "HIGH" if stage == "SEVERE" else "WARNING",
             "AVOID" if stage == "SEVERE" else "CAUTION",
-            [[78.045, 30.330], [78.055, 30.342]],
+            _coordinates_list(gis.ROAD_DIRECT_COORDS[-3:]),
         ),
     ]
 
@@ -1284,6 +1492,12 @@ def _edge(
         ("demo_graph_routing_evidence",),
         tuple((float(lon), float(lat)) for lon, lat in coordinates),
     )
+
+
+def _coordinates_list(
+    coordinates: tuple[tuple[float, float], ...],
+) -> list[list[float]]:
+    return [[lon, lat] for lon, lat in coordinates]
 
 
 def _route_alternative(
@@ -1359,7 +1573,7 @@ def _timeline(stage: ScenarioStage) -> list[dict[str, Any]]:
         points = [
             (0, 0.64, "WARNING", "RISING", "118%", "AVOID", "WARNING", "D-22 over capacity"),
             (15, 0.70, "HIGH", "RISING", "124%", "AVOID", "WARNING", "Runoff continues rising"),
-            (30, 0.76, "HIGH", "RISING", "131%", "AVOID", "WARNING", "Shelter corridor remains AVOID"),
+            (30, 0.76, "HIGH", "RISING", "131%", "AVOID", "WARNING", "Transport Nagar Road remains AVOID"),
             (60, 0.84, "HIGH", "RISING", "143%", "AVOID", "EMERGENCY", "Possible corridor degradation"),
         ]
     else:
@@ -1438,15 +1652,15 @@ def _provenance_rows(profile: StageProfile) -> list[dict[str, Any]]:
         },
         {
             "variable": "drain capacity",
-            "source": "demo GIS profile",
+            "source": "estimated D-22 profile aligned to OSM stream",
             "status": "ESTIMATED",
             "age_minutes": None,
             "confidence": 0.66,
         },
         {
             "variable": "DEM terrain",
-            "source": "demo GIS profile",
-            "status": "ESTIMATED",
+            "source": gis.TERRAIN["source_name"],
+            "status": gis.TERRAIN["derived_status"],
             "age_minutes": None,
             "confidence": 0.64,
         },
@@ -1600,17 +1814,38 @@ def _metric(
     }
 
 
+def _entity_name(
+    entities: dict[str, dict[str, Any]],
+    nearest: tuple[str, float] | None,
+) -> str | None:
+    if nearest is None:
+        return None
+    entity_id, _ = nearest
+    entity = entities.get(entity_id)
+    if entity is None:
+        return entity_id
+    return str(entity.get("name") or entity_id)
+
+
+def _distance_value(
+    nearest: tuple[str, float] | None,
+) -> int | None:
+    if nearest is None:
+        return None
+    return int(round(nearest[1]))
+
+
 def _road_name(road_id: str) -> str:
     names = {
-        ROAD_DIRECT_ID: "Shelter corridor",
-        ROAD_BYPASS_ID: "Higher-ground bypass",
-        ROAD_CLOSED_ID: "Bridge approach authority closure",
-        ROAD_HILLSIDE_ID: "Hillside link",
+        ROAD_DIRECT_ID: "Transport Nagar Road",
+        ROAD_BYPASS_ID: "Post Office Road",
+        ROAD_CLOSED_ID: "DEMO authority closure on mapped unnamed road",
+        ROAD_HILLSIDE_ID: "Transport Nagar Road connector",
     }
     return names.get(road_id, road_id)
 
 
 def _route_coordinates(stage: ScenarioStage) -> list[list[float]]:
     if stage in {"WARNING", "SEVERE"}:
-        return [[78.029, 30.319], [78.041, 30.326], [78.056, 30.338]]
-    return [[78.030, 30.320], [78.039, 30.329], [78.052, 30.335]]
+        return _coordinates_list(gis.ROAD_BYPASS_COORDS)
+    return _coordinates_list(gis.ROAD_DIRECT_COORDS)

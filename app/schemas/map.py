@@ -89,6 +89,19 @@ class ModelMetadata(BaseModel):
     operationally_validated: bool = False
 
 
+class DataMetric(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    label: str
+    value: Any | None
+    unit: str | None = None
+    status: str | None = None
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    age_minutes: float | None = Field(default=None, ge=0.0)
+    source: str | None = None
+    quality: str | None = None
+
+
 class RiskBearing(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -257,6 +270,27 @@ class SensorDetail(BaseModel):
     freshness: str
     provenance: SourceMetadata
     last_updated: datetime
+
+
+class LocationInspection(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    type: Literal["location"] = "location"
+    id: str
+    snapshot_id: str
+    latitude: float
+    longitude: float
+    jurisdiction: str | None = None
+    ward_or_village: str | None = None
+    catchment_id: str | None = None
+    nearest_road: str | None = None
+    nearest_stream: str | None = None
+    nearest_drain: str | None = None
+    nearest_shelter: str | None = None
+    terrain: list[DataMetric] = Field(default_factory=list)
+    hydrology: list[DataMetric] = Field(default_factory=list)
+    hazard_context: list[DataMetric] = Field(default_factory=list)
+    data_quality: list[DataMetric] = Field(default_factory=list)
 
 
 class Alert(BaseModel):

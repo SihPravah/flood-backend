@@ -6,6 +6,7 @@ from app.schemas.map import (
     Alert,
     CatchmentDetail,
     DrainDetail,
+    LocationInspection,
     MapIntelligenceResponse,
     RoadDetail,
     SensorDetail,
@@ -149,6 +150,24 @@ class HTTPMLIntelligenceService(MLIntelligenceService):
         )
         return SensorDetail.model_validate(payload)
 
+    def inspect_location(
+        self,
+        *,
+        longitude: float,
+        latitude: float,
+        scenario_stage: str = "WARNING",
+    ) -> LocationInspection:
+        payload = self._request(
+            "GET",
+            "/api/v1/intelligence/map/inspect",
+            params={
+                "longitude": longitude,
+                "latitude": latitude,
+                "scenario_stage": scenario_stage,
+            },
+        )
+        return LocationInspection.model_validate(payload)
+
     def get_alerts(
         self,
         scenario_stage: str = "WARNING",
@@ -269,6 +288,15 @@ class UnavailableMLIntelligenceService(MLIntelligenceService):
         device_id: str,
         scenario_stage: str = "WARNING",
     ) -> SensorDetail:
+        raise _unavailable()
+
+    def inspect_location(
+        self,
+        *,
+        longitude: float,
+        latitude: float,
+        scenario_stage: str = "WARNING",
+    ) -> LocationInspection:
         raise _unavailable()
 
     def get_alerts(

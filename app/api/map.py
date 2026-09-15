@@ -5,6 +5,7 @@ from app.schemas.map import (
     Alert,
     CatchmentDetail,
     DrainDetail,
+    LocationInspection,
     MapIntelligenceResponse,
     RoadDetail,
     SensorDetail,
@@ -176,6 +177,31 @@ def alerts(
     stage = _active_stage(scenario_stage, state_store)
     try:
         return ml_service.get_alerts(stage)
+    except MLIntelligenceServiceError as exc:
+        raise _service_unavailable(exc) from exc
+
+
+@router.get(
+    "/map/inspect",
+    response_model=LocationInspection,
+    summary="Inspect real/static GIS context for a map coordinate.",
+)
+def inspect_location(
+    longitude: float = Query(ge=-180.0, le=180.0),
+    latitude: float = Query(ge=-90.0, le=90.0),
+    scenario_stage: str | None = Query(default=None),
+    ml_service: MLIntelligenceService = Depends(
+        get_ml_intelligence_service
+    ),
+    state_store: MonitoringStateStore = Depends(get_monitoring_state_store),
+):
+    stage = _active_stage(scenario_stage, state_store)
+    try:
+        return ml_service.inspect_location(
+            longitude=longitude,
+            latitude=latitude,
+            scenario_stage=stage,
+        )
     except MLIntelligenceServiceError as exc:
         raise _service_unavailable(exc) from exc
 

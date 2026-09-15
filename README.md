@@ -25,6 +25,7 @@ OpenAPI is available at `/docs`.
 - `GET /api/v1/map/drains/{drain_id}`
 - `GET /api/v1/map/roads/{road_id}`
 - `GET /api/v1/map/sensors/{device_id}`
+- `GET /api/v1/map/inspect`
 - `GET /api/v1/map/alerts`
 - `GET /api/v1/events`
 - `GET /api/v1/system/health`
@@ -45,7 +46,9 @@ The default local service uses deterministic demo adapters marked
 `SIMULATED`. Operational mode must not silently substitute simulated
 data for unavailable observed services.
 
-The deterministic demo namespace is `DEMO-001`, with shared IDs such as
+The deterministic demo namespace is `DEMO-001`, now anchored to the
+`DEHRADUN-CHANDRABANI-PS26192` focused study area with OSM/SRTM static
+context and shared IDs such as
 `UK-CHM-DEHRADUN-01`, `D-22`, `ROAD-SHELTER-CORRIDOR`,
 `ROAD-BRIDGE-APPROACH`, `SENSOR-SIM-RAIN-SOIL-01`, and
 `SHELTER-SCHOOL-01`.
@@ -55,7 +58,7 @@ The deterministic demo namespace is `DEMO-001`, with shared IDs such as
 With the backend running, publish a canonical IoT-style event:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\publish_sensor_event.py --device UK-SNS-00127 --rainfall 48 --soil 0.82 --lat 30.329 --lon 78.039
+.\.venv\Scripts\python.exe scripts\publish_sensor_event.py --device UK-SNS-00127 --rainfall 48 --soil 0.82 --lat 30.285029 --lon 77.978689
 ```
 
 The script sends `observed_at`, external `location.lat/location.lon`, rainfall

@@ -36,10 +36,10 @@ def main() -> int:
         default=0.0,
         help="Optional local sensor tilt in degrees; defaults to 0.0.",
     )
-    parser.add_argument("--lat", type=float, default=30.329)
-    parser.add_argument("--lon", type=float, default=78.039)
+    parser.add_argument("--lat", type=float, default=30.285029)
+    parser.add_argument("--lon", type=float, default=77.978689)
     parser.add_argument("--village", default="Chandrabani")
-    parser.add_argument("--ward", default="Ward 7")
+    parser.add_argument("--ward", default="Chandrabani settlement point")
     parser.add_argument("--observed-at", default=None)
     parser.add_argument("--received-at", default=None)
     parser.add_argument(
